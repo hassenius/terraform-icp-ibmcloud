@@ -1,5 +1,4 @@
 resource "ibm_lbaas" "proxy-lbaas" {
-  count = "${var.proxy["nodes"] > 1 ? 1 : 0}"
   name = "${var.deployment}-proxy-${random_id.clusterid.hex}"
   description = "load balancer for proxy"
 
@@ -29,7 +28,6 @@ resource "ibm_lbaas_server_instance_attachment" "icp_proxy" {
 }
 
 resource "ibm_lbaas" "master-lbaas" {
-  count = "${var.master["nodes"] > 1 ? 1 : 0}"
   name = "${var.deployment}-${random_id.clusterid.hex}"
   description = "load balancer for ICP master"
 
