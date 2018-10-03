@@ -27,9 +27,6 @@ module "icpprovision" {
 
     # Provide location for ICP Installation tarball
     image_location = "${var.image_location}"
-    
-    # TODO: Need to correct spelling of parallel in terraform-icp-deploy variables.tf, main.tf and where-ever else.
-    parallell-image-pull = true
 
     /* Workaround for terraform issue #10857
      When this is fixed, we can work this out automatically */
