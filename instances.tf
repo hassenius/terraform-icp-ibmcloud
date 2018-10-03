@@ -11,27 +11,6 @@ resource "tls_private_key" "installkey" {
   algorithm   = "RSA"
 }
 
-resource "tls_private_key" "registry_key" {
-  algorithm = "RSA"
-  rsa_bits = "4096"
-}
-
-resource "tls_self_signed_cert" "registry_cert" {
-  key_algorithm   = "RSA"
-  private_key_pem = "${tls_private_key.registry_key.private_key_pem}"
-
-  subject {
-    common_name  = "${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}"
-  }
-
-  dns_names  = ["${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}"]
-  validity_period_hours = "${24 * 365 * 10}"
-
-  allowed_uses = [
-    "server_auth"
-  ]
-}
-
 data "ibm_network_vlan" "private_vlan" {
   count = "${var.private_vlan_router_hostname != "" ? 1 : 0}"
   router_hostname = "${var.private_vlan_router_hostname}.${var.datacenter}"
@@ -57,12 +36,6 @@ locals {
         ibm_storage_file.fs_registry.*.id,
         list(""))
     )}"
-
-  # use a local private registry we stand up on the boot node if image location is specified
-  inception_parts = "${split("/", var.icp_inception_image)}"
-  inception_image = "${var.image_location == "" || length(local.inception_parts) == 3 ?
-      "${var.icp_inception_image}" :
-      "${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}/${var.icp_inception_image}" }"
 
   private_vlan_id = "${element(concat(data.ibm_network_vlan.private_vlan.*.id, list("-1")), 0) }"
   public_vlan_id = "${element(concat(data.ibm_network_vlan.public_vlan.*.id, list("-1")), 0)}"
@@ -138,18 +111,6 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${base64encode(file("${path.module}/scripts/bootstrap.sh"))}
-  - path: /opt/ibm/scripts/load_image.sh
-    permissions: '0755'
-    encoding: b64
-    content: ${base64encode(file("${path.module}/scripts/load_image.sh"))}
-  - path: /etc/registry/registry-cert.pem
-    permissions: '600'
-    encoding: b64
-    content: ${base64encode("${tls_self_signed_cert.registry_cert.cert_pem}")}
-  - path: /etc/registry/registry-key.pem
-    permissions: '600'
-    encoding: b64
-    content: ${base64encode("${tls_private_key.registry_key.private_key_pem}")}
 runcmd:
   - /opt/ibm/scripts/bootstrap.sh -u icpdeploy ${local.docker_package_uri != "" ? "-p ${local.docker_package_uri}" : "" } -d /dev/xvdc
 EOF
@@ -177,39 +138,7 @@ EOF
   }
 }
 
-resource "null_resource" "image_load" {
-  count = "${var.image_location != "" ? 1 : 0}"
-
-  provisioner "file" {
-    connection {
-      host          = "${ibm_compute_vm_instance.icp-boot.ipv4_address_private}"
-      user          = "icpdeploy"
-      private_key   = "${tls_private_key.installkey.private_key_pem}"
-      bastion_host  = "${var.private_network_only ? ibm_compute_vm_instance.icp-boot.ipv4_address_private : ibm_compute_vm_instance.icp-boot.ipv4_address}"
-    }
-
-    source = "${var.image_location}"
-    destination = "/tmp/${basename(var.image_location)}"
-  }
-
-  # wait until cloud-init finishes, then load images into a local registry
-  provisioner "remote-exec" {
-    connection {
-      host          = "${ibm_compute_vm_instance.icp-boot.ipv4_address_private}"
-      user          = "icpdeploy"
-      private_key   = "${tls_private_key.installkey.private_key_pem}"
-      bastion_host  = "${var.private_network_only ? ibm_compute_vm_instance.icp-boot.ipv4_address_private : ibm_compute_vm_instance.icp-boot.ipv4_address}"
-    }
-
-    inline = [
-      "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done",
-      "/opt/ibm/scripts/load_image.sh -p /tmp/${basename(var.image_location)} -r ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}"
-    ]
-  }
-}
-
 resource "ibm_compute_vm_instance" "icp-master" {
-  depends_on = ["null_resource.image_load"]
   count = "${var.master["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-master%02d-${random_id.clusterid.hex}", count.index + 1) }"
@@ -272,10 +201,6 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${base64encode(file("${path.module}/scripts/bootstrap.sh"))}
-  - path: /etc/docker/certs.d/${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}/ca.crt
-    permissions: '600'
-    encoding: b64
-    content: ${base64encode("${tls_self_signed_cert.registry_cert.cert_pem}")}
 mounts:
 ${var.master["nodes"] > 1 ? "
   - ['${ibm_storage_file.fs_registry.mountpoint}', /var/lib/registry, nfs, defaults, 0, 0]
@@ -334,7 +259,6 @@ EOF
 }
 
 resource "ibm_compute_vm_instance" "icp-mgmt" {
-  depends_on = ["null_resource.image_load"]
   count = "${var.mgmt["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-mgmt%02d-${random_id.clusterid.hex}", count.index + 1) }"
@@ -395,10 +319,6 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${base64encode(file("${path.module}/scripts/bootstrap.sh"))}
-  - path: /etc/docker/certs.d/${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}/ca.crt
-    permissions: '600'
-    encoding: b64
-    content: ${base64encode("${tls_self_signed_cert.registry_cert.cert_pem}")}
 runcmd:
   - /opt/ibm/scripts/bootstrap.sh -u icpdeploy ${local.docker_package_uri != "" ? "-p ${local.docker_package_uri}" : "" } -d /dev/xvdc
   - echo '${ibm_compute_vm_instance.icp-boot.ipv4_address_private} ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}' >> /etc/hosts
@@ -444,7 +364,6 @@ EOF
 
 resource "ibm_compute_vm_instance" "icp-va" {
   count = "${var.va["nodes"]}"
-  depends_on = ["null_resource.image_load"]
 
   hostname = "${format("${lower(var.deployment)}-va%02d-${random_id.clusterid.hex}", count.index + 1) }"
   domain = "${var.domain}"
@@ -501,10 +420,6 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${base64encode(file("${path.module}/scripts/bootstrap.sh"))}
-  - path: /etc/docker/certs.d/${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}/ca.crt
-    permissions: '600'
-    encoding: b64
-    content: ${base64encode("${tls_self_signed_cert.registry_cert.cert_pem}")}
 runcmd:
   - /opt/ibm/scripts/bootstrap.sh -u icpdeploy ${local.docker_package_uri != "" ? "-p ${local.docker_package_uri}" : "" } -d /dev/xvdc
   - echo '${ibm_compute_vm_instance.icp-boot.ipv4_address_private} ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}' >> /etc/hosts
@@ -550,7 +465,6 @@ EOF
 }
 
 resource "ibm_compute_vm_instance" "icp-proxy" {
-  depends_on = ["null_resource.image_load"]
   count = "${var.proxy["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-proxy%02d-${random_id.clusterid.hex}", count.index + 1) }"
@@ -608,10 +522,6 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${base64encode(file("${path.module}/scripts/bootstrap.sh"))}
-  - path: /etc/docker/certs.d/${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}/ca.crt
-    permissions: '600'
-    encoding: b64
-    content: ${base64encode("${tls_self_signed_cert.registry_cert.cert_pem}")}
 runcmd:
   - /opt/ibm/scripts/bootstrap.sh -u icpdeploy ${local.docker_package_uri != "" ? "-p ${local.docker_package_uri}" : "" } -d /dev/xvdc
   - echo '${ibm_compute_vm_instance.icp-boot.ipv4_address_private} ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}' >> /etc/hosts
@@ -659,7 +569,6 @@ EOF
 
 
 resource "ibm_compute_vm_instance" "icp-worker" {
-  depends_on = ["null_resource.image_load"]
   count = "${var.worker["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-worker%02d-${random_id.clusterid.hex}", count.index + 1) }"
@@ -718,10 +627,6 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${base64encode(file("${path.module}/scripts/bootstrap.sh"))}
-  - path: /etc/docker/certs.d/${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}/ca.crt
-    permissions: '600'
-    encoding: b64
-    content: ${base64encode("${tls_self_signed_cert.registry_cert.cert_pem}")}
 runcmd:
   - /opt/ibm/scripts/bootstrap.sh -u icpdeploy ${local.docker_package_uri != "" ? "-p ${local.docker_package_uri}" : "" } -d /dev/xvdc
   - echo '${ibm_compute_vm_instance.icp-boot.ipv4_address_private} ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}' >> /etc/hosts

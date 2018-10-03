@@ -23,7 +23,7 @@ module "icpprovision" {
     }
 
     # Provide desired ICP version to provision
-    icp-version = "${local.inception_image}"
+    icp-version = "${var.icp_inception_image}"
 
     # TODO: Need to correct spelling of parallel in terraform-icp-deploy variables.tf, main.tf and where-ever else.
     parallell-image-pull = true
