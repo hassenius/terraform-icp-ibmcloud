@@ -64,6 +64,17 @@ resource "ibm_security_group_rule" "allow_port_8500" {
   security_group_id = "${ibm_security_group.master_group.id}"
 }
 
+# restrict to LBaaS private subnet
+resource "ibm_security_group_rule" "allow_port_8600" {
+  direction = "ingress"
+  ether_type = "IPv4"
+  protocol = "tcp"
+  port_range_min = 8600
+  port_range_max = 8600
+  remote_ip = "${ibm_compute_vm_instance.icp-master.0.private_subnet}"
+  security_group_id = "${ibm_security_group.master_group.id}"
+}
+
 # TODO restrict to LBaaS private subnet
 resource "ibm_security_group_rule" "allow_port_8001" {
   direction = "ingress"
