@@ -60,7 +60,7 @@ variable "boot" {
 
   default = {
     cpu_cores         = "2"
-    memory            = "2048"
+    memory            = "4096"
 
     disk_size         = "100" // GB
     docker_vol_size   = "100" // GB
@@ -79,8 +79,8 @@ variable "master" {
   default = {
     nodes             = "3"
 
-    cpu_cores         = "4"
-    memory            = "8192"
+    cpu_cores         = "8"
+    memory            = "16384"
 
     disk_size         = "100" // GB
     docker_vol_size   = "100" // GB
