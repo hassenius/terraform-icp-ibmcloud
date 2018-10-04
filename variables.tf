@@ -77,7 +77,7 @@ variable "master" {
   type = "map"
 
   default = {
-    nodes             = "1"
+    nodes             = "3"
 
     cpu_cores         = "4"
     memory            = "8192"
@@ -115,7 +115,7 @@ variable "proxy" {
   type = "map"
 
   default = {
-    nodes       = "1"
+    nodes       = "3"
 
     cpu_cores   = "2"
     memory      = "4096"
