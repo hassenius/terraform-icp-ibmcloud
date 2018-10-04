@@ -1,37 +1,6 @@
-provider "ibm" {
-    softlayer_username = "${var.sl_username}"
-    softlayer_api_key = "${var.sl_api_key}"
-}
-
-resource "random_id" "clusterid" {
-  byte_length = "4"
-}
-
-resource "tls_private_key" "installkey" {
-  algorithm   = "RSA"
-}
-
-resource "tls_private_key" "registry_key" {
-  algorithm = "RSA"
-  rsa_bits = "4096"
-}
-
-resource "tls_self_signed_cert" "registry_cert" {
-  key_algorithm   = "RSA"
-  private_key_pem = "${tls_private_key.registry_key.private_key_pem}"
-
-  subject {
-    common_name  = "${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}"
-  }
-
-  dns_names  = ["${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}"]
-  validity_period_hours = "${24 * 365 * 10}"
-
-  allowed_uses = [
-    "server_auth"
-  ]
-}
-
+#########################################################
+## Get VLAN IDs if we need to provision to specific VLANs
+########################################################
 data "ibm_network_vlan" "private_vlan" {
   count = "${var.private_vlan_router_hostname != "" ? 1 : 0}"
   router_hostname = "${var.private_vlan_router_hostname}.${var.datacenter}"
@@ -44,34 +13,14 @@ data "ibm_network_vlan" "public_vlan" {
   number = "${var.public_vlan_number}"
 }
 
-data "ibm_compute_ssh_key" "public_key" {
-  count = "${length(var.key_name)}"
-  label = "${element(var.key_name, count.index)}"
-}
-
 locals {
-  docker_package_uri = "${var.docker_package_location != "" ? "/tmp/${basename(var.docker_package_location)}" : "" }"
-  master_fs_ids = "${compact(
-      concat(
-        ibm_storage_file.fs_audit.*.id,
-        ibm_storage_file.fs_registry.*.id,
-        list(""))
-    )}"
-
-  # use a local private registry we stand up on the boot node if image location is specified
-  inception_parts = "${split("/", var.icp_inception_image)}"
-  inception_image = "${var.image_location == "" || length(local.inception_parts) == 3 ?
-      "${var.icp_inception_image}" :
-      "${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}/${var.icp_inception_image}" }"
-
   private_vlan_id = "${element(concat(data.ibm_network_vlan.private_vlan.*.id, list("-1")), 0) }"
   public_vlan_id = "${element(concat(data.ibm_network_vlan.public_vlan.*.id, list("-1")), 0)}"
 }
 
-# Generate a random string in case user wants us to generate admin password
-resource "random_id" "adminpassword" {
-  byte_length = "16"
-}
+##############################################
+## Provision boot node
+##############################################
 
 resource "ibm_compute_vm_instance" "icp-boot" {
   hostname = "${var.deployment}-boot-${random_id.clusterid.hex}"
@@ -114,7 +63,7 @@ resource "ibm_compute_vm_instance" "icp-boot" {
   ))}"]
 
   # Permit an ssh loging for the key owner.
-  # You an have multiple keys defined.
+  # You can have multiple keys defined.
   ssh_key_ids = ["${data.ibm_compute_ssh_key.public_key.*.id}"]
 
   user_metadata = <<EOF
@@ -124,8 +73,6 @@ packages:
   - python
   - pv
   - nfs-common
-rh_subscription:
-  enable-repo: rhel-7-server-extras-rpms
 users:
   - default
   - name: icpdeploy
@@ -174,46 +121,11 @@ EOF
   }
 }
 
-resource "null_resource" "image_copy" {
-  # Only copy image from local location if not available remotely
-  count = "${var.image_location != "" && ! (substr(var.image_location, 0, 3) != "nfs"  || substr(var.image_location, 0, 4) != "http") ? 1 : 0}"
-
-  provisioner "file" {
-    connection {
-      host          = "${ibm_compute_vm_instance.icp-boot.ipv4_address_private}"
-      user          = "icpdeploy"
-      private_key   = "${tls_private_key.installkey.private_key_pem}"
-      bastion_host  = "${var.private_network_only ? ibm_compute_vm_instance.icp-boot.ipv4_address_private : ibm_compute_vm_instance.icp-boot.ipv4_address}"
-    }
-
-    source = "${var.image_location}"
-    destination = "/tmp/${basename(var.image_location)}"
-  }
-}
-
-resource "null_resource" "image_load" {
-  count = "${var.image_location != "" ? 1 : 0}"
-  depends_on = ["null_resource.image_load"]
-  # wait until cloud-init finishes, then load images into a local registry
-  provisioner "remote-exec" {
-    connection {
-      host          = "${ibm_compute_vm_instance.icp-boot.ipv4_address_private}"
-      user          = "icpdeploy"
-      private_key   = "${tls_private_key.installkey.private_key_pem}"
-      bastion_host  = "${var.private_network_only ? ibm_compute_vm_instance.icp-boot.ipv4_address_private : ibm_compute_vm_instance.icp-boot.ipv4_address}"
-    }
-
-    inline = [
-      "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done",
-      "sudo wget -O /opt/ibm/scripts//load_image.sh https://gist.githubusercontent.com/hassenius/00e913ab7bbe41f8c55323d61f0ad332/raw/7c31caa8b6cd59e22861a761f00cbba3213043e2/load_image.sh",
-      "sudo chmod a+x /opt/ibm/scripts//load_image.sh",
-      "/opt/ibm/scripts/load_image.sh -p ${var.image_location} -r ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}"
-    ]
-  }
-}
+##############################################
+## Provision cluster nodes
+##############################################
 
 resource "ibm_compute_vm_instance" "icp-master" {
-  depends_on = ["null_resource.image_load", "null_resource.image_copy"]
   count = "${var.master["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-master%02d-${random_id.clusterid.hex}", count.index + 1) }"
@@ -261,8 +173,6 @@ resource "ibm_compute_vm_instance" "icp-master" {
 packages:
   - unzip
   - python
-rh_subscription:
-  enable-repo: rhel-7-server-extras-rpms
 users:
   - default
   - name: icpdeploy
@@ -298,7 +208,7 @@ runcmd:
 EOF
 
   # Permit an ssh loging for the key owner.
-  # You an have multiple keys defined.
+  # You can have multiple keys defined.
   ssh_key_ids = ["${data.ibm_compute_ssh_key.public_key.*.id}"]
 
   notes = "Master node for ICP deployment"
@@ -338,7 +248,6 @@ EOF
 }
 
 resource "ibm_compute_vm_instance" "icp-mgmt" {
-  depends_on = ["null_resource.image_load"]
   count = "${var.mgmt["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-mgmt%02d-${random_id.clusterid.hex}", count.index + 1) }"
@@ -376,7 +285,7 @@ resource "ibm_compute_vm_instance" "icp-mgmt" {
   ]
 
   # Permit an ssh loging for the key owner.
-  # You an have multiple keys defined.
+  # You can have multiple keys defined.
   ssh_key_ids = ["${data.ibm_compute_ssh_key.public_key.*.id}"]
 
   user_metadata = <<EOF
@@ -384,8 +293,6 @@ resource "ibm_compute_vm_instance" "icp-mgmt" {
 packages:
   - unzip
   - python
-rh_subscription:
-  enable-repo: rhel-7-server-extras-rpms
 users:
   - default
   - name: icpdeploy
@@ -448,7 +355,6 @@ EOF
 
 resource "ibm_compute_vm_instance" "icp-va" {
   count = "${var.va["nodes"]}"
-  depends_on = ["null_resource.image_load"]
 
   hostname = "${format("${lower(var.deployment)}-va%02d-${random_id.clusterid.hex}", count.index + 1) }"
   domain = "${var.domain}"
@@ -490,8 +396,6 @@ resource "ibm_compute_vm_instance" "icp-va" {
 packages:
   - unzip
   - python
-rh_subscription:
-  enable-repo: rhel-7-server-extras-rpms
 users:
   - default
   - name: icpdeploy
@@ -515,7 +419,7 @@ runcmd:
 EOF
 
   # Permit an ssh loging for the key owner.
-  # You an have multiple keys defined.
+  # You can have multiple keys defined.
   ssh_key_ids = ["${data.ibm_compute_ssh_key.public_key.*.id}"]
 
   notes = "Vulnerability Advisor node for ICP deployment"
@@ -554,7 +458,6 @@ EOF
 }
 
 resource "ibm_compute_vm_instance" "icp-proxy" {
-  depends_on = ["null_resource.image_load"]
   count = "${var.proxy["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-proxy%02d-${random_id.clusterid.hex}", count.index + 1) }"
@@ -597,8 +500,6 @@ resource "ibm_compute_vm_instance" "icp-proxy" {
 packages:
   - unzip
   - python
-rh_subscription:
-  enable-repo: rhel-7-server-extras-rpms
 users:
   - default
   - name: icpdeploy
@@ -622,7 +523,7 @@ runcmd:
 EOF
 
   # Permit an ssh loging for the key owner.
-  # You an have multiple keys defined.
+  # You can have multiple keys defined.
   ssh_key_ids = ["${data.ibm_compute_ssh_key.public_key.*.id}"]
 
   notes = "Proxy node for ICP deployment"
@@ -663,7 +564,6 @@ EOF
 
 
 resource "ibm_compute_vm_instance" "icp-worker" {
-  depends_on = ["null_resource.image_load"]
   count = "${var.worker["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-worker%02d-${random_id.clusterid.hex}", count.index + 1) }"
@@ -707,8 +607,6 @@ resource "ibm_compute_vm_instance" "icp-worker" {
 packages:
   - unzip
   - python
-rh_subscription:
-  enable-repo: rhel-7-server-extras-rpms
 users:
   - default
   - name: icpdeploy
@@ -732,7 +630,7 @@ runcmd:
 EOF
 
   # Permit an ssh loging for the key owner.
-  # You an have multiple keys defined.
+  # You can have multiple keys defined.
   ssh_key_ids = ["${data.ibm_compute_ssh_key.public_key.*.id}"]
 
   notes = "Worker node for ICP deployment"

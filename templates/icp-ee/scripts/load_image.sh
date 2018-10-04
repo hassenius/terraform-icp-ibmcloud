@@ -61,7 +61,7 @@ else
 fi
 
 echo "Unpacking ${image_file} ..."
-pv ${image_file} | tar zxf - -O | sudo docker load
+pv --interval 10 ${image_file} | tar zxf - -O | sudo docker load
 
 sudo mkdir -p /registry
 sudo mkdir -p /etc/docker/certs.d/${registry}
@@ -71,7 +71,7 @@ sudo cp /etc/registry/registry-cert.pem /etc/docker/certs.d/${registry}/ca.crt
 sudo mkdir /auth
 sudo docker run \
   --entrypoint htpasswd \
-  registry:2 -Bbn icpdeploy ${regpassword} > /auth/htpasswd
+  registry:2 -Bbn icpdeploy ${regpassword} | sudo tee /auth/htpasswd
 
 sudo docker run -d \
   --restart=always \
@@ -81,6 +81,7 @@ sudo docker run -d \
   -v /auth:/auth \
   -e "REGISTRY_AUTH=htpasswd" \
   -e "REGISTRY_AUTH_HTPASSWD_REALM=Registry Realm" \
+  -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
   -e REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY=/registry \
   -e REGISTRY_HTTP_ADDR=0.0.0.0:443 \
   -e REGISTRY_HTTP_TLS_CERTIFICATE=/certs/registry-cert.pem \
@@ -95,4 +96,8 @@ sudo docker images | grep -v REPOSITORY | grep -v ${registry} | awk '{print $1 "
 sudo docker images | grep ${registry} | grep "amd64" | awk '{gsub("-amd64", "") ; print $1 "-amd64:" $2 " " $1 ":" $2 }' | xargs -n2  sh -c 'sudo docker tag $1 $2' argv0
 
 # Push all images and tags to private docker registry
-sudo docker images | grep ${registry} | awk '{print $1 ":" $2}' | sort | uniq | xargs -n1 sudo docker push
+sudo docker login --password ${regpassword} --username icpdeploy ${registry}
+while read image; do
+  echo "Pushing ${image}"
+  sudo docker push ${image} >> /tmp/imagepush.log
+done < <(sudo docker images | grep ${registry} | awk '{print $1 ":" $2}' | sort | uniq)
