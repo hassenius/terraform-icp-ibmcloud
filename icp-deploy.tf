@@ -9,7 +9,7 @@ locals {
 ### Deploy ICP to cluster
 ##################################
 module "icpprovision" {
-    source = "github.com/ibm-cloud-architecture/terraform-module-icp-deploy.git?ref=2.3.4"
+    source = "github.com/ibm-cloud-architecture/terraform-module-icp-deploy.git?ref=2.3.5"
 
     # Provide IP addresses for boot, master, mgmt, va, proxy and workers
     boot-node = "${ibm_compute_vm_instance.icp-boot.ipv4_address_private}"
@@ -24,9 +24,6 @@ module "icpprovision" {
 
     # Provide desired ICP version to provision
     icp-version = "${local.inception_image}"
-
-    # TODO: Need to correct spelling of parallel in terraform-icp-deploy variables.tf, main.tf and where-ever else.
-    parallell-image-pull = true
 
     /* Workaround for terraform issue #10857
      When this is fixed, we can work this out automatically */
@@ -66,6 +63,12 @@ module "icpprovision" {
     ssh_user        = "icpdeploy"
     ssh_key_base64  = "${base64encode(tls_private_key.installkey.private_key_pem)}"
     ssh_agent       = false
+
+#    hooks = {
+#      boot-preconfig = [
+#        "echo ${null_resource.image_load.id}"
+#      ]
+#    }
 }
 
 output "ICP Console load balancer DNS (external)" {

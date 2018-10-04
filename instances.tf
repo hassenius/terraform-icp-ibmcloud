@@ -123,6 +123,7 @@ packages:
   - unzip
   - python
   - pv
+  - nfs-common
 rh_subscription:
   enable-repo: rhel-7-server-extras-rpms
 users:
@@ -138,10 +139,6 @@ write_files:
     permissions: '0755'
     encoding: b64
     content: ${base64encode(file("${path.module}/scripts/bootstrap.sh"))}
-  - path: /opt/ibm/scripts/load_image.sh
-    permissions: '0755'
-    encoding: b64
-    content: ${base64encode(file("${path.module}/scripts/load_image.sh"))}
   - path: /etc/registry/registry-cert.pem
     permissions: '600'
     encoding: b64
@@ -177,8 +174,9 @@ EOF
   }
 }
 
-resource "null_resource" "image_load" {
-  count = "${var.image_location != "" ? 1 : 0}"
+resource "null_resource" "image_copy" {
+  # Only copy image from local location if not available remotely
+  count = "${var.image_location != "" && ! (substr(var.image_location, 0, 3) != "nfs"  || substr(var.image_location, 0, 4) != "http") ? 1 : 0}"
 
   provisioner "file" {
     connection {
@@ -191,7 +189,11 @@ resource "null_resource" "image_load" {
     source = "${var.image_location}"
     destination = "/tmp/${basename(var.image_location)}"
   }
+}
 
+resource "null_resource" "image_load" {
+  count = "${var.image_location != "" ? 1 : 0}"
+  depends_on = ["null_resource.image_load"]
   # wait until cloud-init finishes, then load images into a local registry
   provisioner "remote-exec" {
     connection {
@@ -203,13 +205,15 @@ resource "null_resource" "image_load" {
 
     inline = [
       "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done",
-      "/opt/ibm/scripts/load_image.sh -p /tmp/${basename(var.image_location)} -r ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}"
+      "sudo wget -O /opt/ibm/scripts//load_image.sh https://gist.githubusercontent.com/hassenius/00e913ab7bbe41f8c55323d61f0ad332/raw/7c31caa8b6cd59e22861a761f00cbba3213043e2/load_image.sh",
+      "sudo chmod a+x /opt/ibm/scripts//load_image.sh",
+      "/opt/ibm/scripts/load_image.sh -p ${var.image_location} -r ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain}"
     ]
   }
 }
 
 resource "ibm_compute_vm_instance" "icp-master" {
-  depends_on = ["null_resource.image_load"]
+  depends_on = ["null_resource.image_load", "null_resource.image_copy"]
   count = "${var.master["nodes"]}"
 
   hostname = "${format("${lower(var.deployment)}-master%02d-${random_id.clusterid.hex}", count.index + 1) }"
