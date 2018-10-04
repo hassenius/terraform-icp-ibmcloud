@@ -39,9 +39,9 @@ module "icpprovision" {
     icp_configuration = {
       "network_cidr"                    = "${var.network_cidr}"
       "service_cluster_ip_range"        = "${var.service_network_cidr}"
-      "cluster_lb_address"              = "${var.master["nodes"] > 1 ? "${ibm_lbaas.master-lbaas.vip}" : ""}"
-      "proxy_lb_address"                = "${var.proxy["nodes"] > 1 ? "${ibm_lbaas.proxy-lbaas.vip}" : ""}"
-      "cluster_CA_domain"               = "${var.master["nodes"] > 1 ? ibm_lbaas.master-lbaas.vip : ""}"
+      "cluster_lb_address"              = "${ibm_lbaas.master-lbaas.vip}"
+      "proxy_lb_address"                = "${ibm_lbaas.proxy-lbaas.vip}"
+      "cluster_CA_domain"               = "${ibm_lbaas.master-lbaas.vip}"
       "cluster_name"                    = "${var.deployment}"
       "calico_ip_autodetection_method"  = "interface=eth0"
       "default_admin_password"          = "${local.icppassword}"
@@ -69,23 +69,23 @@ module "icpprovision" {
 }
 
 output "ICP Console load balancer DNS (external)" {
-  value = "${element(ibm_lbaas.master-lbaas.*.vip, 0)}"
+  value = "${ibm_lbaas.master-lbaas.vip}"
 }
 
 output "ICP Proxy load balancer DNS (external)" {
-  value = "${element(ibm_lbaas.proxy-lbaas.*.vip, 0)}"
+  value = "${ibm_lbaas.proxy-lbaas.vip}"
 }
 
 output "ICP Console URL" {
-  value = "https://${element(ibm_lbaas.master-lbaas.*.vip, 0)}:8443"
+  value = "https://${ibm_lbaas.master-lbaas.vip}:8443"
 }
 
 output "ICP Registry URL" {
-  value = "${element(ibm_lbaas.master-lbaas.*.vip, 0)}:8500"
+  value = "${ibm_lbaas.master-lbaas.vip}:8500"
 }
 
 output "ICP Kubernetes API URL" {
-  value = "https://${element(ibm_lbaas.master-lbaas.*.vip, 0)}:8001"
+  value = "https://${ibm_lbaas.master-lbaas.vip}:8001"
 }
 
 output "ICP Admin Username" {
