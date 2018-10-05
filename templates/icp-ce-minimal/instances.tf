@@ -130,13 +130,13 @@ resource "ibm_compute_vm_instance" "icp-master" {
   private_vlan_id = "${local.private_vlan_id}"
 
 
-  public_security_group_ids = ["${compact(concat(
-    ibm_security_group.cluster_public.*.id
-  ))}"]
+  public_security_group_ids = [
+    "${ibm_security_group.cluster_public.id}",
+    "${ibm_security_group.master_group.*.id}"
+  ]
 
   private_security_group_ids = [
-    "${ibm_security_group.cluster_private.id}",
-    "${ibm_security_group.master_group.id}"
+    "${ibm_security_group.cluster_private.id}"
   ]
 
   tags = [
@@ -378,13 +378,13 @@ resource "ibm_compute_vm_instance" "icp-proxy" {
   public_vlan_id = "${local.public_vlan_id}"
   private_vlan_id = "${local.private_vlan_id}"
 
-  public_security_group_ids = ["${compact(concat(
-    ibm_security_group.cluster_public.*.id
-  ))}"]
+  public_security_group_ids = [
+    "${ibm_security_group.proxy_group.id}",
+    "${ibm_security_group.cluster_public.id}"
+  ]
 
   private_security_group_ids = [
-    "${ibm_security_group.cluster_private.id}",
-    "${ibm_security_group.proxy_group.id}"
+    "${ibm_security_group.cluster_private.id}"
   ]
 
   local_disk = "${var.proxy["local_disk"]}"
