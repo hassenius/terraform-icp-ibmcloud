@@ -38,16 +38,17 @@ resource "null_resource" "image_load" {
     destination = "/tmp/load_image.sh"
   }
 
-  # provisioner "remote-exec" {
-  #
-  #   # We need to wait for cloud init to finish it's boot sequence.
-  #   inline = [
-  #     "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done",
-  #     "sudo mv /tmp/load_image.sh /opt/ibm/scripts/",
-  #     "sudo chmod a+x /opt/ibm/scripts/load_image.sh",
-  #     "/opt/ibm/scripts/load_image.sh -p ${var.image_location} -r ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain} -c ${local.docker_password}"
-  #   ]
-  # }
+  provisioner "remote-exec" {
+
+    # We need to wait for cloud init to finish it's boot sequence.
+    inline = [
+      "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done",
+      "sudo mv /tmp/load_image.sh /opt/ibm/scripts/",
+      "sudo chmod a+x /opt/ibm/scripts/load_image.sh",
+      "/opt/ibm/scripts/load_image.sh -p ${var.image_location} -r ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain} -c ${local.docker_password}",
+      "sudo touch /opt/ibm/.imageload_complete"
+    ]
+  }
 }
 
 ##################################
@@ -109,17 +110,22 @@ module "icpprovision" {
     ssh_key_base64  = "${base64encode(tls_private_key.installkey.private_key_pem)}"
     ssh_agent       = false
 
+    # hooks = {
+    #   "cluster-preconfig" = ["echo No hook"]
+    #   "cluster-postconfig" = ["echo No hook"]
+    #   "preinstall" = ["echo No hook"]
+    #   "postinstall" = ["echo No hook"]
+    #   "boot-preconfig" = [
+    #     # "${var.image_location == "" ? "exit 0" : "echo Getting archives"}",
+    #     "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done",
+    #     "sudo mv /tmp/load_image.sh /opt/ibm/scripts/",
+    #     "sudo chmod a+x /opt/ibm/scripts/load_image.sh",
+    #     "/opt/ibm/scripts/load_image.sh -p ${var.image_location} -r ${local.registry_server} -c ${local.docker_password}"
+    #   ]
+    # }
     hooks = {
-      "cluster-preconfig" = [""]
-      "cluster-postconfig" = [""]
-      "preinstall" = [""]
-      "postinstall" = [""]
       "boot-preconfig" = [
-        # "${var.image_location == "" ? "exit 0" : "echo Getting archives"}",
-        "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done",
-        "sudo mv /tmp/load_image.sh /opt/ibm/scripts/",
-        "sudo chmod a+x /opt/ibm/scripts/load_image.sh",
-        "/opt/ibm/scripts/load_image.sh -p ${var.image_location} -r ${local.registry_server} -c ${local.docker_password}"
+        "while [ ! -f /opt/ibm/.imageload_complete ]; do sleep 5; done"
       ]
     }
 }
