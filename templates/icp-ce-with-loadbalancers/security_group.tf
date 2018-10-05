@@ -143,5 +143,5 @@ resource "ibm_security_group_rule" "allow_ssh" {
   protocol = "tcp"
   port_range_min = 22
   port_range_max = 22
-  security_group_id = "${ibm_security_group.boot_node_public.id}"
+  security_group_id = "${ibm_security_group.cluster_public.id}"
 }
