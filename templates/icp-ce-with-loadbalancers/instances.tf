@@ -258,9 +258,12 @@ EOF
 
   # wait until cloud-init finishes
   provisioner "remote-exec" {
+
     connection {
+      host          = "${self.ipv4_address_private}"
       user          = "icpdeploy"
       private_key   = "${tls_private_key.installkey.private_key_pem}"
+      bastion_host  = "${ibm_compute_vm_instance.icp-master.ipv4_address}"
     }
 
     inline = [
@@ -345,9 +348,12 @@ EOF
   # wait until cloud-init finishes
   provisioner "remote-exec" {
     connection {
+      host          = "${self.ipv4_address_private}"
       user          = "icpdeploy"
       private_key   = "${tls_private_key.installkey.private_key_pem}"
+      bastion_host  = "${ibm_compute_vm_instance.icp-master.ipv4_address}"
     }
+
 
     inline = [
       "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done"
@@ -431,9 +437,12 @@ EOF
   # wait until cloud-init finishes
   provisioner "remote-exec" {
     connection {
+      host          = "${self.ipv4_address_private}"
       user          = "icpdeploy"
       private_key   = "${tls_private_key.installkey.private_key_pem}"
+      bastion_host  = "${ibm_compute_vm_instance.icp-master.ipv4_address}"
     }
+
 
     inline = [
       "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done"
@@ -519,9 +528,12 @@ EOF
   # wait until cloud-init finishes
   provisioner "remote-exec" {
     connection {
+      host          = "${self.ipv4_address_private}"
       user          = "icpdeploy"
       private_key   = "${tls_private_key.installkey.private_key_pem}"
+      bastion_host  = "${ibm_compute_vm_instance.icp-master.ipv4_address}"
     }
+
 
     inline = [
       "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done"
