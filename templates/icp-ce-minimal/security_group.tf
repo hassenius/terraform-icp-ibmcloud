@@ -101,7 +101,6 @@ resource "ibm_security_group_rule" "master_node_allow_outbound_public" {
   security_group_id = "${ibm_security_group.master_group.id}"
 }
 
-# restrict to LBaaS private subnet
 resource "ibm_security_group_rule" "allow_port_80" {
   direction = "ingress"
   ether_type = "IPv4"
@@ -112,14 +111,13 @@ resource "ibm_security_group_rule" "allow_port_80" {
   security_group_id = "${ibm_security_group.proxy_group.id}"
 }
 
-# restrict to LBaaS private subnet
 resource "ibm_security_group_rule" "allow_port_443" {
   direction = "ingress"
   ether_type = "IPv4"
   protocol = "tcp"
   port_range_min = 443
   port_range_max = 443
-  remote_ip = "${ibm_compute_vm_instance.icp-proxy.0.private_subnet}"
+  remote_ip = "0.0.0.0/0"
   security_group_id = "${ibm_security_group.proxy_group.id}"
 }
 
