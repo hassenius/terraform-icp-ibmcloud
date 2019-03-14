@@ -45,17 +45,29 @@ resource "null_resource" "image_load" {
       "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 1; done",
       "sudo mv /tmp/load_image.sh /opt/ibm/scripts/",
       "sudo chmod a+x /opt/ibm/scripts/load_image.sh",
-      "/opt/ibm/scripts/load_image.sh -p ${var.image_location} -r ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain} -c ${local.docker_password}",
+#      "/opt/ibm/scripts/load_image.sh -p ${var.image_location} -r ${var.deployment}-boot-${random_id.clusterid.hex}.${var.domain} -c ${local.docker_password}",
       "sudo touch /opt/ibm/.imageload_complete"
     ]
   }
+}
+
+
+### For debugging
+variable "location" {
+
+}
+variable "locuser" {
+
+}
+variable "locpass" {
+
 }
 
 ##################################
 ### Deploy ICP to cluster
 ##################################
 module "icpprovision" {
-    source = "github.com/ibm-cloud-architecture/terraform-module-icp-deploy.git?ref=2.3.5"
+    source = "github.com/ibm-cloud-architecture/terraform-module-icp-deploy.git?ref=3.1.1"
 
     # Provide IP addresses for boot, master, mgmt, va, proxy and workers
     boot-node = "${ibm_compute_vm_instance.icp-boot.ipv4_address_private}"
@@ -69,8 +81,12 @@ module "icpprovision" {
     }
 
     # Provide desired ICP version to provision
-    icp-version = "${var.icp_inception_image}"
-
+    #icp-version = "${var.icp_inception_image}"
+    #icp-inception = "${local.inception_image}"
+    # for debug
+    image_location = "${var.location}"
+    image_location_user = "${var.locuser}"
+    image_location_pass = "${var.locpass}"
     /* Workaround for terraform issue #10857
      When this is fixed, we can work this out automatically */
     cluster_size  = "${1 + var.master["nodes"] + var.worker["nodes"] + var.proxy["nodes"] + var.mgmt["nodes"] + var.va["nodes"]}"
@@ -111,11 +127,11 @@ module "icpprovision" {
     ssh_agent       = false
 
     # Make sure to wait for image load to complete
-    hooks = {
-      "boot-preconfig" = [
-        "while [ ! -f /opt/ibm/.imageload_complete ]; do sleep 5; done"
-      ]
-    }
+    # hooks = {
+    #   "boot-preconfig" = [
+    #     "while [ ! -f /opt/ibm/.imageload_complete ]; do sleep 5; done"
+    #   ]
+    # }
 
     ## Alternative approach
     # hooks = {
